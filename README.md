@@ -139,3 +139,29 @@ Follow these steps to present StadiumPulse AI to judges in under 4 minutes:
 3. Show the interactive **SVG Stadium Map** displaying the pathing line dynamically routing the fan away from Gate C and through Gate D instead.
 4. Toggle the **ADA Accessible Path** and watch the route adjust to include elevators and wheelchair ramps on Concourse Level 2.
 5. In the **Ops Console**, click **Resolve** or **Reset All Telemetry** to return the stadium status to standby.
+
+---
+
+## 🌐 CI/CD & Cloud Deployment
+
+StadiumPulse AI is equipped with full automated pipelines via **GitHub Actions** for continuous integration and continuous delivery (CI/CD) to **Google Cloud Run**:
+
+### 🛠️ Continuous Integration (CI)
+On every push or pull request to the `main` branch, the pipeline executes:
+- **Format Verification:** Prettier code-style compliance.
+- **Linting:** ESLint syntax and code quality checks.
+- **Type Checking:** Monorepo-wide TypeScript compiling safety checks.
+- **Unit & Integration Tests:** Runs pathfinder and routing logic tests.
+- **Build Verification:** Production Next.js and server compilation.
+
+### 🚀 Continuous Delivery (CD)
+Upon merge to `main`, the deployment pipeline:
+1. Authenticates securely to Google Cloud.
+2. Compiles container images for **Agent Core**, **Fan Companion**, and **Ops Console**.
+3. Pushes images to Google Artifact Registry.
+4. Deploys services to Google Cloud Run, utilizing Google Secret Manager to safely inject the `GEMINI_API_KEY` at runtime.
+
+#### Deployed Services (Live Links):
+- 📱 **Fan Companion:** [Pending Deploy]
+- 📊 **Ops Command Center:** [Pending Deploy]
+- 🧠 **Agent Core API:** [Pending Deploy]
