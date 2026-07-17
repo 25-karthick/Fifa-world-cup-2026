@@ -1,0 +1,31 @@
+{
+  "name": "stadiumpulse-ai-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:simulation": "npm run dev --workspace=services/simulation-engine",
+    "dev:agent": "npm run dev --workspace=services/agent-core",
+    "dev:fan": "npm run dev --workspace=apps/fan-companion",
+    "dev:ops": "npm run dev --workspace=apps/ops-console",
+    "dev": "concurrently \"npm run dev:simulation\" \"npm run dev:agent\" \"npm run dev:fan\" \"npm run dev:ops\"",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "install:all": "npm install",
+    "lint": "eslint \"**/*.ts\" \"**/*.tsx\" --ignore-pattern \"**/node_modules/**\" --ignore-pattern \"**/.next/**\" --ignore-pattern \"**/dist/**\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,md}\" --ignore-path .gitignore",
+    "typecheck": "npm exec --workspaces -- tsc --noEmit"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "concurrently": "^8.2.2",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5",
+    "typescript": "^5.3.3"
+  }
+}

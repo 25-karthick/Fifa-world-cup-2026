@@ -1,0 +1,120 @@
+name: CD Pipeline
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for GCP Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ secrets.GCP_REGION || 'us-central1' }}-docker.pkg.dev --quiet
+
+      - name: Create Artifact Registry repository if not exists
+        run: |
+          gcloud artifacts repositories create stadiumpulse-repo \
+            --repository-format=docker \
+            --location=${{ secrets.GCP_REGION || 'us-central1' }} \
+            --description="StadiumPulse Docker repository" || true
+
+      # --- 1. BUILD AND DEPLOY AGENT CORE ---
+      - name: Build and Push Agent Core Image
+        run: |
+          IMAGE_TAG="${{ secrets.GCP_REGION || 'us-central1' }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/stadiumpulse-repo/agent-core:${{ github.sha }}"
+          docker build -t $IMAGE_TAG -f services/agent-core/Dockerfile .
+          docker push $IMAGE_TAG
+
+      - name: Deploy Agent Core to Cloud Run
+        id: deploy-agent-core
+        run: |
+          IMAGE_TAG="${{ secrets.GCP_REGION || 'us-central1' }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/stadiumpulse-repo/agent-core:${{ github.sha }}"
+          gcloud run deploy agent-core \
+            --image=$IMAGE_TAG \
+            --region=${{ secrets.GCP_REGION || 'us-central1' }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --set-secrets="GEMINI_API_KEY=GEMINI_API_KEY:latest" \
+            --quiet
+
+          # Retrieve the deployed URL of agent-core
+          AGENT_CORE_URL=$(gcloud run services describe agent-core --region=${{ secrets.GCP_REGION || 'us-central1' }} --format='value(status.url)')
+          echo "AGENT_CORE_URL=$AGENT_CORE_URL" >> $GITHUB_ENV
+          echo "Deployed Agent Core URL: $AGENT_CORE_URL"
+
+      # --- 2. BUILD AND DEPLOY FAN COMPANION ---
+      - name: Build and Push Fan Companion Image
+        run: |
+          IMAGE_TAG="${{ secrets.GCP_REGION || 'us-central1' }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/stadiumpulse-repo/fan-companion:${{ github.sha }}"
+          docker build \
+            --build-arg NEXT_PUBLIC_AGENT_CORE_URL=${{ env.AGENT_CORE_URL }} \
+            -t $IMAGE_TAG \
+            -f apps/fan-companion/Dockerfile .
+          docker push $IMAGE_TAG
+
+      - name: Deploy Fan Companion to Cloud Run
+        run: |
+          IMAGE_TAG="${{ secrets.GCP_REGION || 'us-central1' }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/stadiumpulse-repo/fan-companion:${{ github.sha }}"
+          gcloud run deploy fan-companion \
+            --image=$IMAGE_TAG \
+            --region=${{ secrets.GCP_REGION || 'us-central1' }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --quiet
+
+      # --- 3. BUILD AND DEPLOY OPS CONSOLE ---
+      - name: Build and Push Ops Console Image
+        run: |
+          IMAGE_TAG="${{ secrets.GCP_REGION || 'us-central1' }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/stadiumpulse-repo/ops-console:${{ github.sha }}"
+          docker build \
+            --build-arg NEXT_PUBLIC_AGENT_CORE_URL=${{ env.AGENT_CORE_URL }} \
+            -t $IMAGE_TAG \
+            -f apps/ops-console/Dockerfile .
+          docker push $IMAGE_TAG
+
+      - name: Deploy Ops Console to Cloud Run
+        run: |
+          IMAGE_TAG="${{ secrets.GCP_REGION || 'us-central1' }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/stadiumpulse-repo/ops-console:${{ github.sha }}"
+          gcloud run deploy ops-console \
+            --image=$IMAGE_TAG \
+            --region=${{ secrets.GCP_REGION || 'us-central1' }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --quiet
+
+      # --- SUMMARY ---
+      - name: Generate Deployment Summary
+        run: |
+          FAN_URL=$(gcloud run services describe fan-companion --region=${{ secrets.GCP_REGION || 'us-central1' }} --format='value(status.url)')
+          OPS_URL=$(gcloud run services describe ops-console --region=${{ secrets.GCP_REGION || 'us-central1' }} --format='value(status.url)')
+          echo "### 🚀 StadiumPulse AI Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Cloud Run URL |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Agent Core** | ${{ env.AGENT_CORE_URL }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Fan Companion** | $FAN_URL |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Ops Console** | $OPS_URL |" >> $GITHUB_STEP_SUMMARY
